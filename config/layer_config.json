@@ -1,0 +1,92 @@
+{
+  "layer_config": {
+    "port": "8090",
+    "service_name": "filesystem_service",
+    "log_level": "DEBUG",
+    "log_format": "json",
+    "config_refresh_interval": "2s"
+  },
+  "system_config": {
+    "path": "/something/"
+  },
+  "dataset_definitions": [
+    {
+      "name": "people",
+      "source_config": {
+        "encoding"  : "csv",
+        "read_path" : "incoming",
+        "read_file_pattern" : "*.csv",
+        "read_recursive" : true,
+        "read_recursive_ignore_pattern" :  "*bananas",
+        "support_since_by_file_timestamp" : true,
+        "write_path" : "incoming",
+        "write_full_sync_file" : "people.csv",
+        "write_incremental_file" : "people.csv",
+        "write_incremental_append" : true
+      },
+      "incoming_mapping_config": {
+        "base_uri": "http://data.sample.org/",
+        "property_mappings": [
+          {
+            "property": "id",
+            "is_identity": true,
+            "uri_value_pattern": "http://data.sample.org/things/{value}"
+          },
+          {
+            "entity_property": "name",
+            "property": "name"
+          }
+        ]
+      },
+      "outgoing_mapping_config": {
+        "base_uri": "http://data.sample.org/",
+        "property_mappings": [
+          {
+            "property": "id",
+            "is_identity": true,
+            "uri_value_pattern": "http://data.sample.org/things/{value}"
+          },
+          {
+            "entity_property": "name",
+            "property": "name"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sample-with-json-encoder",
+      "source_config": {
+        "resourceName" : "sample.json",
+        "encoding" : "json"
+      },
+      "incoming_mapping_config": {
+        "base_uri": "http://data.sample.org/",
+        "property_mappings": [
+          {
+            "property": "id",
+            "is_identity": true,
+            "uri_value_pattern": "http://data.sample.org/things/{value}"
+          },
+          {
+            "entity_property": "name",
+            "property": "name"
+          }
+        ]
+      },
+      "outgoing_mapping_config": {
+        "base_uri": "http://data.sample.org/",
+        "property_mappings": [
+          {
+            "property": "id",
+            "is_identity": true,
+            "uri_value_pattern": "http://data.sample.org/things/{value}"
+          },
+          {
+            "entity_property": "name",
+            "property": "name"
+          }
+        ]
+      }
+    }
+  ]
+}
