@@ -27,8 +27,7 @@ func TestStartStopFileSystemDataLayer(t *testing.T) {
 	}
 }
 
-func writeSampleCsv(path string) error {
-	filename := path + "/data.csv"
+func writeSampleCsv(filename string) error {
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -56,7 +55,7 @@ func TestGetChanges(t *testing.T) {
 	defer os.RemoveAll(folderName)
 
 	// create some data
-	err := writeSampleCsv(folderName)
+	err := writeSampleCsv(folderName + "/data.csv")
 	if err != nil {
 		t.Error(err)
 	}
@@ -74,7 +73,6 @@ func TestGetChanges(t *testing.T) {
 		t.Error(err)
 	}
 
-	// get the service so we can make class and not use the http endpoint
 	service := serviceRunner.LayerService()
 	ds, err := service.Dataset("people")
 	if err != nil {
@@ -97,6 +95,174 @@ func TestGetChanges(t *testing.T) {
 
 	if entity.ID != "http://data.sample.org/things/1" {
 		t.Error("Expected 1")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestMultiSourceFilesGetChanges(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	// create some data
+	err := writeSampleCsv(folderName + "/data1.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = writeSampleCsv(folderName + "/data2.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = writeSampleCsv(folderName + "/data3.txt")
+	if err != nil {
+		t.Error(err)
+	}
+
+	configLocation := "./config"
+	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+		return nil
+	})
+
+	err = serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	changes, err := ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	count := 0
+
+	// iterate next until no more
+	for {
+		entity, err := changes.Next()
+		if err != nil {
+			t.Error(err)
+		}
+
+		if entity == nil {
+			break
+		}
+
+		count++
+	}
+
+	if count != 6 {
+		t.Error("Expected 6")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestMultiSourceFilesInFolderHierarchyGetChanges(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	// create some data
+	err := writeSampleCsv(folderName + "/data1.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	// create child folder
+	childFolderName := folderName + "/child"
+	os.MkdirAll(childFolderName, 0777)
+
+	err = writeSampleCsv(childFolderName + "/data2.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	childFolderName = folderName + "/child2"
+	os.MkdirAll(childFolderName, 0777)
+
+	err = writeSampleCsv(childFolderName + "/data3.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	configLocation := "./config"
+	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+
+		// get dataset definition with name people
+		for _, ds := range config.DatasetDefinitions {
+			if ds.DatasetName == "people" {
+				ds.SourceConfig["read_recursive"] = true
+				ds.SourceConfig["read_recursive_ignore_pattern"] = "*child2"
+			}
+		}
+
+		return nil
+	})
+
+	err = serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	changes, err := ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	count := 0
+
+	// iterate next until no more
+	for {
+		entity, err := changes.Next()
+		if err != nil {
+			t.Error(err)
+		}
+
+		if entity == nil {
+			break
+		}
+
+		count++
+	}
+
+	if count != 6 {
+		t.Error("Expected 6")
 	}
 
 	err = serviceRunner.Stop()

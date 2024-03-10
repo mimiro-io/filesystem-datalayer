@@ -14,7 +14,7 @@
       "name": "people",
       "source_config": {
         "encoding"  : "csv",
-        "has_headers" : true,
+        "has_header" : true,
         "columns" : ["id", "name", "age", "worksfor"],
         "read_path" : "",
         "read_file_pattern" : "*.csv",
