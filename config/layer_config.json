@@ -14,9 +14,11 @@
       "name": "people",
       "source_config": {
         "encoding"  : "csv",
-        "read_path" : "incoming",
+        "has_headers" : true,
+        "columns" : ["id", "name", "age", "worksfor"],
+        "read_path" : "",
         "read_file_pattern" : "*.csv",
-        "read_recursive" : true,
+        "read_recursive" : false,
         "read_recursive_ignore_pattern" :  "*bananas",
         "support_since_by_file_timestamp" : true,
         "write_path" : "incoming",

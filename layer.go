@@ -2,6 +2,7 @@ package layer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/hashicorp/go-uuid"
 	layer "github.com/mimiro-io/common-datalayer"
@@ -41,18 +42,23 @@ func (dl *FileSystemDataLayer) UpdateConfiguration(config *layer.Config) layer.L
 	dl.config = config
 	dl.datasets = make(map[string]*FileSystemDataset)
 
-	// iterate dataset definitions in the config and create a dataset for each
+	var err error
 	for _, dataset := range config.DatasetDefinitions {
-		dl.datasets[dataset.DatasetName] = &FileSystemDataset{name: dataset.DatasetName, datasetDefinition: dataset}
+		dl.datasets[dataset.DatasetName], err =
+			NewFileSystemDataset(dataset.DatasetName, config.NativeSystemConfig["path"].(string), dataset, dl.logger)
+		if err != nil {
+			return layer.Err(fmt.Errorf("could not create dataset %s because %s", dataset.DatasetName, err.Error()), layer.LayerErrorInternal)
+		}
 	}
 
 	return nil
 }
 
 func (dl *FileSystemDataLayer) Dataset(dataset string) (layer.Dataset, layer.LayerError) {
-	ds := &FileSystemDataset{name: dataset}
-
-	// TODO: load other config
+	ds, ok := dl.datasets[dataset]
+	if !ok {
+		return nil, layer.Err(fmt.Errorf("dataset %s not found", dataset), layer.LayerErrorBadParameter)
+	}
 
 	return ds, nil
 }
@@ -68,103 +74,86 @@ func (dl *FileSystemDataLayer) DatasetDescriptions() []*layer.DatasetDescription
 	return datasetDescriptions
 }
 
-func NewFileSystemDataset(name string, path string, datasetDefinition *layer.DatasetDefinition, logger layer.Logger) (*FileSystemDataset, error) {
-	sourceConfig := datasetDefinition.SourceConfig
+func NewFileSystemDatasetConfig(datasetName string, path string, encoding string, sourceConfig map[string]any) (*FileSystemDatasetConfig, error) {
+	data, err := json.Marshal(sourceConfig)
+	if err != nil {
+		return nil, err
+	}
 
-	// get encoding
-	encoding, ok := sourceConfig["encoding"].(string)
+	config := &FileSystemDatasetConfig{}
+	err = json.Unmarshal(data, config)
+	if err != nil {
+		return nil, err
+	}
 
-	// read path
-	readPath, ok := sourceConfig["read_path"].(string)
-	if !ok {
-		readPath = path
-	} else {
-		// check if readpath is absolute
-		if !filepath.IsAbs(readPath) {
-			readPath = filepath.Join(path, readPath)
-		}
+	// check if readpath is absolute
+	if !filepath.IsAbs(config.ReadPath) {
+		config.ReadPath = filepath.Join(path, config.ReadPath)
 	}
 
 	// file pattern
-	filePattern, ok := sourceConfig["read_file_pattern"].(string)
-	if !ok {
+	if config.ReadFilePattern == "" {
 		// * with the encoding
-		filePattern = fmt.Sprintf("*.%s", encoding)
+		config.ReadFilePattern = fmt.Sprintf("*.%s", encoding)
 	}
 
-	// read recursive
-	readRecursive, ok := sourceConfig["read_recursive"].(bool)
-	if !ok {
-		readRecursive = false
-	}
-
-	// read ignore folder pattern
-	readRecursiveIgnorePattern, ok := sourceConfig["read_recursive_ignore_pattern"].(string)
-	if !ok {
-		readRecursiveIgnorePattern = ""
-	}
-
-	// support since by file timestamp
-	supportSinceByFileTimestamp, ok := sourceConfig["support_since_by_file_timestamp"].(bool)
-
-	// write path
-	writePath, ok := sourceConfig["write_path"].(string)
-	if !ok {
-		writePath = path
-	} else {
-		// check if writepath is absolute
-		if !filepath.IsAbs(writePath) {
-			writePath = filepath.Join(path, writePath)
-		}
+	// check if writepath is absolute
+	if !filepath.IsAbs(config.WritePath) {
+		config.WritePath = filepath.Join(path, config.WritePath)
 	}
 
 	// write full sync file name
-	writeFullSyncFileName, ok := sourceConfig["write_full_sync_file"].(string)
-	if !ok {
+	if config.WriteFullSyncFileName == "" {
 		// use all but append encoding
-		writeFullSyncFileName = fmt.Sprintf("alldata.%s", encoding)
+		config.WriteFullSyncFileName = fmt.Sprintf("alldata.%s", encoding)
 	}
 
 	// write incremental file name
-	writeIncrementalFileName, ok := sourceConfig["write_incremental_file"].(string)
-	if !ok {
+	if config.WriteIncrementalFileName == "" {
 		// use dataset name and append encoding
-		writeIncrementalFileName = fmt.Sprintf("%s.%s", name, encoding)
+		config.WriteIncrementalFileName = fmt.Sprintf("%s.%s", datasetName, encoding)
 	}
 
-	// incremental append
-	incrementalAppend, ok := sourceConfig["write_incremental_append"].(bool)
+	return config, nil
+}
+
+type FileSystemDatasetConfig struct {
+	Encoding                    string `json:"encoding"`
+	ReadPath                    string `json:"read_path"`
+	ReadFilePattern             string `json:"read_file_pattern"`
+	ReadRecursive               bool   `json:"read_recursive"`
+	ReadRecursiveIgnorePattern  string `json:"read_recursive_ignore_pattern"`
+	SupportSinceByFileTimestamp bool   `json:"support_since_by_file_timestamp"`
+	WritePath                   string `json:"write_path"`
+	WriteFullSyncFileName       string `json:"write_full_sync_file"`
+	WriteIncrementalFileName    string `json:"write_incremental_file"`
+	WriteIncrementalAppend      bool   `json:"write_incremental_append"`
+}
+
+func NewFileSystemDataset(name string, path string, datasetDefinition *layer.DatasetDefinition, logger layer.Logger) (*FileSystemDataset, error) {
+	sourceConfig := datasetDefinition.SourceConfig
+
+	encoding, ok := sourceConfig["encoding"].(string)
 	if !ok {
-		incrementalAppend = false
+		return nil, fmt.Errorf("no encoding specified in source config")
+	}
+
+	config, err := NewFileSystemDatasetConfig(name, path, encoding, sourceConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	return &FileSystemDataset{name: name,
-		readPath:                    readPath,
-		readFilePattern:             filePattern,
-		readRecursive:               readRecursive,
-		readRecursiveIgnorePattern:  readRecursiveIgnorePattern,
-		supportSinceByFileTimestamp: supportSinceByFileTimestamp,
-		writePath:                   writePath,
-		writeFullSyncFileName:       writeFullSyncFileName,
-		writeIncrementalFileName:    writeIncrementalFileName,
-		incrementalAppend:           incrementalAppend,
-		datasetDefinition:           datasetDefinition,
-		logger:                      logger}, nil
+		config:            config,
+		datasetDefinition: datasetDefinition,
+		logger:            logger}, nil
 }
 
 type FileSystemDataset struct {
-	logger                      layer.Logger
-	name                        string                   // dataset name
-	datasetDefinition           *layer.DatasetDefinition // the dataset definition with mappings etc
-	readPath                    string                   // path to read from
-	readFilePattern             string                   // the file pattern to match
-	readRecursive               bool                     // indicates if the read should be recursive
-	readRecursiveIgnorePattern  string                   // the pattern to ignore when reading recursively
-	supportSinceByFileTimestamp bool                     // indicates if the file timestamp should be used to support since parameter
-	writePath                   string                   // path to write to
-	writeFullSyncFileName       string                   // the file name to use for full sync
-	writeIncrementalFileName    string                   // the file name to use for incremental, used as part of file name if not appending
-	incrementalAppend           bool                     // indicates if the incremental should append to the file
+	logger            layer.Logger
+	name              string                   // dataset name
+	datasetDefinition *layer.DatasetDefinition // the dataset definition with mappings etc
+	config            *FileSystemDatasetConfig // the dataset config
 }
 
 func (f FileSystemDataset) MetaData() map[string]any {
@@ -178,7 +167,7 @@ func (f FileSystemDataset) Name() string {
 func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchInfo) (layer.DatasetWriter, layer.LayerError) {
 	var file *os.File
 	var err error
-	filePath := filepath.Join(f.writePath, f.writeFullSyncFileName)
+	filePath := filepath.Join(f.config.WritePath, f.config.WriteFullSyncFileName)
 	if batchInfo.IsStartBatch {
 		file, err = os.Create(filePath)
 		if err != nil {
@@ -203,8 +192,8 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 	var file *os.File
 	var err error
 
-	if f.incrementalAppend {
-		filePath := filepath.Join(f.writePath, f.writeIncrementalFileName)
+	if f.config.WriteIncrementalAppend {
+		filePath := filepath.Join(f.config.WritePath, f.config.WriteIncrementalFileName)
 		file, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
 
 		if err != nil {
@@ -212,8 +201,8 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 		}
 	} else {
 		id, _ := uuid.GenerateUUID()
-		partfileName := fmt.Sprintf("part-%s-%s", id, f.writeIncrementalFileName)
-		filePath := filepath.Join(f.readPath, partfileName)
+		partfileName := fmt.Sprintf("part-%s-%s", id, f.config.WriteIncrementalFileName)
+		filePath := filepath.Join(f.config.WritePath, partfileName)
 		file, err = os.Create(filePath)
 		if err != nil {
 			return nil, layer.Err(fmt.Errorf("could not create file %s", filePath), layer.LayerErrorInternal)
@@ -265,21 +254,21 @@ type FileInfo struct {
 
 func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (layer.EntityIterator, layer.LayerError) {
 	// get root folder
-	if _, err := os.Stat(f.readPath); os.IsNotExist(err) {
-		return nil, layer.Err(fmt.Errorf("path %s does not exist", f.readPath), layer.LayerErrorBadParameter)
+	if _, err := os.Stat(f.config.ReadPath); os.IsNotExist(err) {
+		return nil, layer.Err(fmt.Errorf("path %s does not exist", f.config.ReadPath), layer.LayerErrorBadParameter)
 	}
 
 	// check if we are recursive and get all folders
 	var folders []string
-	if f.readRecursive {
-		err := filepath.Walk(f.readPath, func(path string, info os.FileInfo, err error) error {
+	if f.config.ReadRecursive {
+		err := filepath.Walk(f.config.ReadPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 
 			// check if the folder should be ignored
-			if f.readRecursiveIgnorePattern != "" {
-				matched, err := filepath.Match(f.readRecursiveIgnorePattern, info.Name())
+			if f.config.ReadRecursiveIgnorePattern != "" {
+				matched, err := filepath.Match(f.config.ReadRecursiveIgnorePattern, info.Name())
 				if err != nil {
 					return err
 				}
@@ -289,17 +278,17 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 				}
 			}
 
-			if info.IsDir() && info.Name() != f.readPath {
+			if info.IsDir() && info.Name() != f.config.ReadPath {
 				folders = append(folders, path)
 			}
 			return nil
 		})
 
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not read directory %s", f.readPath), layer.LayerErrorBadParameter)
+			return nil, layer.Err(fmt.Errorf("could not read directory %s", f.config.ReadPath), layer.LayerErrorBadParameter)
 		}
 	} else {
-		folders = append(folders, f.readPath)
+		folders = append(folders, f.config.ReadPath)
 	}
 
 	dataFileInfos := make([]FileInfo, 0)
@@ -320,13 +309,13 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 
 	for _, file := range allFileInfos {
 		fileName := file.Entry.Name()
-		isMatch, err := filepath.Match(f.readFilePattern, fileName)
+		isMatch, err := filepath.Match(f.config.ReadFilePattern, fileName)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not match file pattern %s", f.readFilePattern), layer.LayerErrorInternal)
+			return nil, layer.Err(fmt.Errorf("could not match file pattern %s", f.config.ReadFilePattern), layer.LayerErrorInternal)
 		}
 
 		if isMatch {
-			if f.supportSinceByFileTimestamp && since != "" {
+			if f.config.SupportSinceByFileTimestamp && since != "" {
 				layout := "2006-01-02T15:04:05Z07:00"
 				sinceTime, err := time.Parse(layout, since)
 				finfo, err := file.Entry.Info()
@@ -359,21 +348,21 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 
 func (f FileSystemDataset) Entities(from string, limit int) (layer.EntityIterator, layer.LayerError) {
 	// get root folder
-	if _, err := os.Stat(f.readPath); os.IsNotExist(err) {
-		return nil, layer.Err(fmt.Errorf("path %s does not exist", f.readPath), layer.LayerErrorBadParameter)
+	if _, err := os.Stat(f.config.ReadPath); os.IsNotExist(err) {
+		return nil, layer.Err(fmt.Errorf("path %s does not exist", f.config.ReadPath), layer.LayerErrorBadParameter)
 	}
 
 	// check if we are recursive and get all folders
 	var folders []string
-	if f.readRecursive {
-		err := filepath.Walk(f.readPath, func(path string, info os.FileInfo, err error) error {
+	if f.config.ReadRecursive {
+		err := filepath.Walk(f.config.ReadPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 
 			// check if the folder should be ignored
-			if f.readRecursiveIgnorePattern != "" {
-				matched, err := filepath.Match(f.readRecursiveIgnorePattern, info.Name())
+			if f.config.ReadRecursiveIgnorePattern != "" {
+				matched, err := filepath.Match(f.config.ReadRecursiveIgnorePattern, info.Name())
 				if err != nil {
 					return err
 				}
@@ -383,17 +372,17 @@ func (f FileSystemDataset) Entities(from string, limit int) (layer.EntityIterato
 				}
 			}
 
-			if info.IsDir() && info.Name() != f.readPath {
+			if info.IsDir() && info.Name() != f.config.ReadPath {
 				folders = append(folders, path)
 			}
 			return nil
 		})
 
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not read directory %s", f.readPath), layer.LayerErrorBadParameter)
+			return nil, layer.Err(fmt.Errorf("could not read directory %s", f.config.ReadPath), layer.LayerErrorBadParameter)
 		}
 	} else {
-		folders = append(folders, f.readPath)
+		folders = append(folders, f.config.ReadPath)
 	}
 
 	dataFileInfos := make([]FileInfo, 0)
@@ -414,9 +403,9 @@ func (f FileSystemDataset) Entities(from string, limit int) (layer.EntityIterato
 
 	for _, file := range allFileInfos {
 		fileName := file.Entry.Name()
-		isMatch, err := filepath.Match(f.readFilePattern, fileName)
+		isMatch, err := filepath.Match(f.config.ReadFilePattern, fileName)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not match file pattern %s", f.readFilePattern), layer.LayerErrorInternal)
+			return nil, layer.Err(fmt.Errorf("could not match file pattern %s", f.config.ReadFilePattern), layer.LayerErrorInternal)
 		}
 
 		if isMatch {
