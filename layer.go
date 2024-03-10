@@ -194,10 +194,19 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 
 	if f.config.WriteIncrementalAppend {
 		filePath := filepath.Join(f.config.WritePath, f.config.WriteIncrementalFileName)
-		file, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
 
-		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not open file for appending %s", filePath), layer.LayerErrorInternal)
+		// if file doesnt exist create it else append
+		_, err = os.Stat(filePath)
+		if os.IsNotExist(err) {
+			file, err = os.Create(filePath)
+			if err != nil {
+				return nil, layer.Err(fmt.Errorf("could not create file %s", filePath), layer.LayerErrorInternal)
+			}
+		} else {
+			file, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
+			if err != nil {
+				return nil, layer.Err(fmt.Errorf("could not open file for appending %s", filePath), layer.LayerErrorInternal)
+			}
 		}
 	} else {
 		id, _ := uuid.GenerateUUID()

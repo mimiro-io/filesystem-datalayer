@@ -21,7 +21,7 @@
         "read_recursive" : false,
         "read_recursive_ignore_pattern" :  "*bananas",
         "support_since_by_file_timestamp" : true,
-        "write_path" : "incoming",
+        "write_path" : "",
         "write_full_sync_file" : "people.csv",
         "write_incremental_file" : "people.csv",
         "write_incremental_append" : true
@@ -32,7 +32,7 @@
           {
             "property": "id",
             "is_identity": true,
-            "uri_value_pattern": "http://data.sample.org/things/{value}"
+            "strip_ref_prefix" : true
           },
           {
             "entity_property": "name",

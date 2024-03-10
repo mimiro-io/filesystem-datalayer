@@ -1,18 +1,20 @@
 package layer
 
 import (
+	"context"
 	"encoding/csv"
 	"github.com/google/uuid"
-	common_datalayer "github.com/mimiro-io/common-datalayer"
+	cdl "github.com/mimiro-io/common-datalayer"
+	"github.com/mimiro-io/entity-graph-data-model"
 	"os"
 	"testing"
 )
 
 func TestStartStopFileSystemDataLayer(t *testing.T) {
 	configLocation := "./config"
-	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
-	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
 		config.NativeSystemConfig["path"] = "/tmp"
 		return nil
 	})
@@ -61,9 +63,9 @@ func TestGetChanges(t *testing.T) {
 	}
 
 	configLocation := "./config"
-	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
-	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
 		config.NativeSystemConfig["path"] = folderName
 		return nil
 	})
@@ -130,9 +132,9 @@ func TestMultiSourceFilesGetChanges(t *testing.T) {
 	}
 
 	configLocation := "./config"
-	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
-	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
 		config.NativeSystemConfig["path"] = folderName
 		return nil
 	})
@@ -213,9 +215,9 @@ func TestMultiSourceFilesInFolderHierarchyGetChanges(t *testing.T) {
 	}
 
 	configLocation := "./config"
-	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
-	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
 		config.NativeSystemConfig["path"] = folderName
 
 		// get dataset definition with name people
@@ -290,9 +292,9 @@ func TestGetChangesWithSinceFilter(t *testing.T) {
 	}
 
 	configLocation := "./config"
-	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
-	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
 		config.NativeSystemConfig["path"] = folderName
 		return nil
 	})
@@ -412,9 +414,9 @@ func TestGetEntities(t *testing.T) {
 	}
 
 	configLocation := "./config"
-	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
-	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
 		config.NativeSystemConfig["path"] = folderName
 		return nil
 	})
@@ -452,4 +454,321 @@ func TestGetEntities(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+}
+
+// test write full sync
+func TestWriteFullSync(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	configLocation := "./config"
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+		return nil
+	})
+
+	err := serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	// write entities
+	batch := cdl.BatchInfo{SyncId: "1", IsLastBatch: true, IsStartBatch: true}
+	writer, err := ds.FullSync(context.Background(), batch)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity := makeEntity("1")
+	err = writer.Write(entity)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// try reading them back with changes
+	changes, err := ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	if entity.ID != "http://data.sample.org/things/1" {
+		t.Error("Expected 1")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestWriteIncrementalSyncAppend(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	configLocation := "./config"
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+		return nil
+	})
+
+	err := serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	// write entities
+	writer, err := ds.Incremental(context.Background())
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity := makeEntity("1")
+	err = writer.Write(entity)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// try reading them back with changes
+	changes, err := ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	if entity.ID != "http://data.sample.org/things/1" {
+		t.Error("Expected 1")
+	}
+
+	// write some more
+	writer, err = ds.Incremental(context.Background())
+	if err != nil {
+		t.Error(err)
+
+	}
+
+	entity = makeEntity("2")
+	err = writer.Write(entity)
+	if err != nil {
+		t.Error(err)
+
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// try reading them back with changes
+	changes, err = ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestWriteIncrementalSyncNewFilePerBatch(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	configLocation := "./config"
+	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+
+		// get dataset definition with name people
+		for _, ds := range config.DatasetDefinitions {
+			if ds.DatasetName == "people" {
+				ds.SourceConfig["write_incremental_append"] = false
+			}
+		}
+
+		return nil
+	})
+
+	err := serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	// write entities
+	writer, err := ds.Incremental(context.Background())
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity := makeEntity("1")
+	err = writer.Write(entity)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// try reading them back with changes
+	changes, err := ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	if entity.ID != "http://data.sample.org/things/1" {
+		t.Error("Expected 1")
+	}
+
+	// write some more
+	writer, err = ds.Incremental(context.Background())
+	if err != nil {
+		t.Error(err)
+
+	}
+
+	entity = makeEntity("2")
+	err = writer.Write(entity)
+	if err != nil {
+		t.Error(err)
+
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// try reading them back with changes
+	changes, err = ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	entity, err = changes.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func makeEntity(id string) *egdm.Entity {
+	entity := egdm.NewEntity().SetID("http://data.sample.org/things/" + id)
+	entity.SetProperty("http://data.sample.org/name", "brian")
+	entity.SetProperty("http://data.sample.org/age", 23)
+	entity.SetReference("http://data.sample.org/worksfor", "http://data.sample.org/things/worksfor/mimiro")
+	return entity
 }
