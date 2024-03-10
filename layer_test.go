@@ -270,3 +270,186 @@ func TestMultiSourceFilesInFolderHierarchyGetChanges(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// create a test for GetChanges with a since filter. write files check timestamp of last and use that.
+// expect no rsults
+func TestGetChangesWithSinceFilter(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	// create some data
+	err := writeSampleCsv(folderName + "/data.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	configLocation := "./config"
+	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+		return nil
+	})
+
+	err = serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	changes, err := ds.Changes("", 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// iterate next until no more
+	for {
+		entity, err := changes.Next()
+		if err != nil {
+			t.Error(err)
+		}
+
+		if entity == nil {
+			break
+		}
+	}
+
+	token, err := changes.Token()
+	if err != nil {
+		t.Error(err)
+	}
+
+	changes, err = ds.Changes(token.Token, 0, false)
+	if err != nil {
+		t.Error(err)
+	}
+
+	count := 0
+
+	// iterate next until no more
+	for {
+		entity, err := changes.Next()
+		if err != nil {
+			t.Error(err)
+		}
+
+		if entity == nil {
+			break
+		}
+
+		count++
+	}
+
+	if count != 0 {
+		t.Errorf("Expected 0 but got %v", count)
+	}
+
+	// write another file
+	err = writeSampleCsv(folderName + "/data2.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	changes, err = ds.Changes(token.Token, 0, false)
+	if err != nil {
+		t.Error(err)
+
+	}
+
+	count = 0
+
+	// iterate next until no more
+	for {
+		entity, err := changes.Next()
+		if err != nil {
+			t.Error(err)
+		}
+
+		if entity == nil {
+			break
+		}
+
+		count++
+	}
+
+	if count != 3 {
+		t.Error("Expected 3")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+
+}
+
+// write the same tests as above but for GetEntities
+func TestGetEntities(t *testing.T) {
+	// make a guid for test folder name
+	guid := uuid.New().String()
+
+	// create temp folder
+	folderName := "./test/t-" + guid
+	os.MkdirAll(folderName, 0777)
+
+	defer os.RemoveAll(folderName)
+
+	// create some data
+	err := writeSampleCsv(folderName + "/data.csv")
+	if err != nil {
+		t.Error(err)
+	}
+
+	configLocation := "./config"
+	serviceRunner := common_datalayer.NewServiceRunner(NewFileSystemDataLayer)
+	serviceRunner.WithConfigLocation(configLocation)
+	serviceRunner.WithEnrichConfig(func(config *common_datalayer.Config) error {
+		config.NativeSystemConfig["path"] = folderName
+		return nil
+	})
+
+	err = serviceRunner.Start()
+	if err != nil {
+		t.Error(err)
+	}
+
+	service := serviceRunner.LayerService()
+	ds, err := service.Dataset("people")
+	if err != nil {
+		t.Error(err)
+	}
+
+	entities, err := ds.Entities("", 0)
+	if err != nil {
+		t.Error(err)
+	}
+
+	entity, err := entities.Next()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if entity == nil {
+		t.Error("Expected entity")
+	}
+
+	if entity.ID != "http://data.sample.org/things/1" {
+		t.Error("Expected 1")
+	}
+
+	err = serviceRunner.Stop()
+	if err != nil {
+		t.Error(err)
+	}
+}

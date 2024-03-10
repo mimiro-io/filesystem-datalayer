@@ -252,6 +252,9 @@ type FileInfo struct {
 	Path  string
 }
 
+// delcare const time format
+const timeFormat = "2006-01-02T15:04:05Z07:00"
+
 func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (layer.EntityIterator, layer.LayerError) {
 	// get root folder
 	if _, err := os.Stat(f.config.ReadPath); os.IsNotExist(err) {
@@ -316,14 +319,14 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 
 		if isMatch {
 			if f.config.SupportSinceByFileTimestamp && since != "" {
-				layout := "2006-01-02T15:04:05Z07:00"
+				layout := timeFormat
 				sinceTime, err := time.Parse(layout, since)
 				finfo, err := file.Entry.Info()
 				if err != nil {
 					return nil, layer.Err(fmt.Errorf("could not get file info for %s", fileName), layer.LayerErrorInternal)
 				}
-				fileModTime := finfo.ModTime()
-				if fileModTime.After(sinceTime) {
+				fileModTime := finfo.ModTime().Truncate(time.Second)
+				if sinceTime.Before(fileModTime) {
 					dataFileInfos = append(dataFileInfos, file)
 				}
 			} else {
@@ -452,12 +455,19 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 			// initialize the current file entity iterator
 			fileInfo := f.files[f.filesIndex]
 			file := filepath.Join(fileInfo.Path, fileInfo.Entry.Name())
+
+			// get modified time for the file
+			info, err := fileInfo.Entry.Info()
+			f.token = info.ModTime().Format(timeFormat)
+
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
 				return nil, layer.Err(fmt.Errorf("could not create item reader for file %s becuase %s", file, err.Error()), layer.LayerErrorInternal)
 			}
 
 			f.currentItemReader = itemReader
+		} else {
+			return nil, nil
 		}
 	}
 
@@ -477,6 +487,10 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 		if f.filesIndex < len(f.files) {
 			fileInfo := f.files[f.filesIndex]
 			file := filepath.Join(fileInfo.Path, fileInfo.Entry.Name())
+
+			info, err := fileInfo.Entry.Info()
+			f.token = info.ModTime().Format(timeFormat)
+
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
 				return nil, layer.Err(fmt.Errorf("could not create item reader for file %s becuase %s", file, err.Error()), layer.LayerErrorInternal)
