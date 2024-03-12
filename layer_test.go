@@ -12,7 +12,7 @@ import (
 )
 
 func TestStartStopFileSystemDataLayer(t *testing.T) {
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -63,7 +63,7 @@ func TestGetChanges(t *testing.T) {
 		t.Error(err)
 	}
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -132,7 +132,7 @@ func TestMultiSourceFilesGetChanges(t *testing.T) {
 		t.Error(err)
 	}
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -215,7 +215,7 @@ func TestMultiSourceFilesInFolderHierarchyGetChanges(t *testing.T) {
 		t.Error(err)
 	}
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -292,7 +292,7 @@ func TestGetChangesWithSinceFilter(t *testing.T) {
 		t.Error(err)
 	}
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -416,7 +416,7 @@ func TestGetEntities(t *testing.T) {
 		t.Error(err)
 	}
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -457,7 +457,7 @@ func TestWriteFullSync(t *testing.T) {
 
 	defer os.RemoveAll(folderName)
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -529,7 +529,7 @@ func TestWriteIncrementalSyncAppend(t *testing.T) {
 
 	defer os.RemoveAll(folderName)
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {
@@ -643,7 +643,7 @@ func TestWriteIncrementalSyncNewFilePerBatch(t *testing.T) {
 
 	defer os.RemoveAll(folderName)
 
-	configLocation := "./config"
+	configLocation := "./testconfig"
 	serviceRunner := cdl.NewServiceRunner(NewFileSystemDataLayer)
 	serviceRunner.WithConfigLocation(configLocation)
 	serviceRunner.WithEnrichConfig(func(config *cdl.Config) error {

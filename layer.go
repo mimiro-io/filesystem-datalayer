@@ -66,7 +66,7 @@ func (dl *FileSystemDataLayer) Dataset(dataset string) (layer.Dataset, layer.Lay
 func (dl *FileSystemDataLayer) DatasetDescriptions() []*layer.DatasetDescription {
 	var datasetDescriptions []*layer.DatasetDescription
 
-	// iterate over the datasest config and create one for each
+	// iterate over the datasest testconfig and create one for each
 	for key := range dl.datasets {
 		datasetDescriptions = append(datasetDescriptions, &layer.DatasetDescription{Name: key})
 	}
@@ -135,7 +135,7 @@ func NewFileSystemDataset(name string, path string, datasetDefinition *layer.Dat
 
 	encoding, ok := sourceConfig["encoding"].(string)
 	if !ok {
-		return nil, fmt.Errorf("no encoding specified in source config")
+		return nil, fmt.Errorf("no encoding specified in source testconfig")
 	}
 
 	config, err := NewFileSystemDatasetConfig(name, path, encoding, sourceConfig)
@@ -468,7 +468,7 @@ func (f *FileCollectionEntityIterator) NewItemReadCloser(filePath string, source
 	// get encoder for the file
 	itemReader, err := encoder.NewItemIterator(sourceConfig, file)
 	if err != nil {
-		return nil, layer.Err(fmt.Errorf("could not create encoder specified in dataset source config"), layer.LayerErrorBadParameter)
+		return nil, layer.Err(fmt.Errorf("could not create encoder specified in dataset source testconfig"), layer.LayerErrorBadParameter)
 	}
 
 	return itemReader, nil
