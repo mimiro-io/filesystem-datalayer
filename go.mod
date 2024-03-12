@@ -4,7 +4,6 @@ go 1.21.4
 
 require (
 	github.com/google/uuid v1.2.0
-	github.com/hashicorp/go-uuid v1.0.3
 	github.com/mimiro-io/common-datalayer v0.2.2
 	github.com/mimiro-io/entity-graph-data-model v0.7.5
 )
