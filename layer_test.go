@@ -432,22 +432,9 @@ func TestGetEntities(t *testing.T) {
 		t.Error(err)
 	}
 
-	entities, err := ds.Entities("", 0)
-	if err != nil {
-		t.Error(err)
-	}
-
-	entity, err := entities.Next()
-	if err != nil {
-		t.Error(err)
-	}
-
-	if entity == nil {
-		t.Error("Expected entity")
-	}
-
-	if entity.ID != "http://data.sample.org/things/1" {
-		t.Error("Expected 1")
+	_, err = ds.Entities("", 0)
+	if err == nil {
+		t.Error("Expected error")
 	}
 
 	err = serviceRunner.Stop()

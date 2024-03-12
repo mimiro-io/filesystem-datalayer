@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"time"
+	"strconv"
 )
 
 type FileSystemDataLayer struct {
@@ -168,22 +168,23 @@ func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchIn
 	var file *os.File
 	var err error
 	filePath := filepath.Join(f.config.WritePath, f.config.WriteFullSyncFileName)
+	tmpFilePath := filePath + "." + batchInfo.SyncId + ".tmp"
 	if batchInfo.IsStartBatch {
-		file, err = os.Create(filePath)
+		file, err = os.Create(tmpFilePath)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not create file %s", filePath), layer.LayerErrorInternal)
+			return nil, layer.Err(fmt.Errorf("could not create file %s", tmpFilePath), layer.LayerErrorInternal)
 		}
 	} else {
-		file, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
+		file, err = os.OpenFile(tmpFilePath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not open file %s", filePath), layer.LayerErrorInternal)
+			return nil, layer.Err(fmt.Errorf("could not open file %s", tmpFilePath), layer.LayerErrorInternal)
 		}
 	}
 
 	enc, err := encoder.NewItemWriter(f.datasetDefinition.SourceConfig, file, &batchInfo)
 	factory, err := encoder.NewItemFactory(f.datasetDefinition.SourceConfig)
 	mapper := layer.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
-	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory}
+	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory, tmpFullSyncPath: tmpFilePath, fullSyncFilePath: filePath, closeFullSync: batchInfo.IsLastBatch}
 
 	return datasetWriter, nil
 }
@@ -227,10 +228,13 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 }
 
 type FileSystemDatasetWriter struct {
-	logger  layer.Logger
-	enc     encoder.ItemWriter
-	factory encoder.ItemFactory
-	mapper  *layer.Mapper
+	logger           layer.Logger
+	enc              encoder.ItemWriter
+	factory          encoder.ItemFactory
+	mapper           *layer.Mapper
+	tmpFullSyncPath  string
+	fullSyncFilePath string
+	closeFullSync    bool
 }
 
 func (f FileSystemDatasetWriter) Write(entity *egdm.Entity) layer.LayerError {
@@ -253,6 +257,14 @@ func (f FileSystemDatasetWriter) Close() layer.LayerError {
 	if err != nil {
 		return layer.Err(fmt.Errorf("could not close file because %s", err.Error()), layer.LayerErrorInternal)
 	}
+
+	if f.closeFullSync {
+		err = os.Rename(f.tmpFullSyncPath, f.fullSyncFilePath)
+		if err != nil {
+			return layer.Err(fmt.Errorf("could not rename file because %s", err.Error()), layer.LayerErrorInternal)
+		}
+	}
+
 	return nil
 }
 
@@ -260,9 +272,6 @@ type FileInfo struct {
 	Entry fs.DirEntry
 	Path  string
 }
-
-// delcare const time format
-const timeFormat = "2006-01-02T15:04:05Z07:00"
 
 func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (layer.EntityIterator, layer.LayerError) {
 	// get root folder
@@ -328,14 +337,17 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 
 		if isMatch {
 			if f.config.SupportSinceByFileTimestamp && since != "" {
-				layout := timeFormat
-				sinceTime, err := time.Parse(layout, since)
 				finfo, err := file.Entry.Info()
 				if err != nil {
 					return nil, layer.Err(fmt.Errorf("could not get file info for %s", fileName), layer.LayerErrorInternal)
 				}
-				fileModTime := finfo.ModTime().Truncate(time.Second)
-				if sinceTime.Before(fileModTime) {
+				fileModTime := finfo.ModTime().UnixMicro()
+				sinceTimeAsInt, err := strconv.ParseInt(since, 10, 64)
+				if err != nil {
+					return nil, layer.Err(fmt.Errorf("could not parse since time %s", since), layer.LayerErrorInternal)
+				}
+
+				if sinceTimeAsInt < fileModTime {
 					dataFileInfos = append(dataFileInfos, file)
 				}
 			} else {
@@ -359,85 +371,7 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 }
 
 func (f FileSystemDataset) Entities(from string, limit int) (layer.EntityIterator, layer.LayerError) {
-	// get root folder
-	if _, err := os.Stat(f.config.ReadPath); os.IsNotExist(err) {
-		return nil, layer.Err(fmt.Errorf("path %s does not exist", f.config.ReadPath), layer.LayerErrorBadParameter)
-	}
-
-	// check if we are recursive and get all folders
-	var folders []string
-	if f.config.ReadRecursive {
-		err := filepath.Walk(f.config.ReadPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			// check if the folder should be ignored
-			if f.config.ReadRecursiveIgnorePattern != "" {
-				matched, err := filepath.Match(f.config.ReadRecursiveIgnorePattern, info.Name())
-				if err != nil {
-					return err
-				}
-				if matched {
-					// ignore this folder
-					return filepath.SkipDir
-				}
-			}
-
-			if info.IsDir() && info.Name() != f.config.ReadPath {
-				folders = append(folders, path)
-			}
-			return nil
-		})
-
-		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not read directory %s", f.config.ReadPath), layer.LayerErrorBadParameter)
-		}
-	} else {
-		folders = append(folders, f.config.ReadPath)
-	}
-
-	dataFileInfos := make([]FileInfo, 0)
-	allFileInfos := make([]FileInfo, 0)
-
-	// loop over all folders and get all files
-	for _, folder := range folders {
-		files, err := os.ReadDir(folder)
-		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not read directory %s", folder), layer.LayerErrorBadParameter)
-		}
-
-		for _, file := range files {
-			fileInfo := FileInfo{Entry: file, Path: folder}
-			allFileInfos = append(allFileInfos, fileInfo)
-		}
-	}
-
-	for _, file := range allFileInfos {
-		fileName := file.Entry.Name()
-		isMatch, err := filepath.Match(f.config.ReadFilePattern, fileName)
-		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not match file pattern %s", f.config.ReadFilePattern), layer.LayerErrorInternal)
-		}
-
-		if isMatch {
-			dataFileInfos = append(dataFileInfos, file)
-		}
-	}
-
-	// if since defined using file timestamp, order files based on date
-	if len(dataFileInfos) > 0 {
-		sort.Slice(dataFileInfos, func(i, j int) bool {
-			f1, _ := dataFileInfos[i].Entry.Info()
-			f2, _ := dataFileInfos[j].Entry.Info()
-			return f1.ModTime().Before(f2.ModTime())
-		})
-	}
-
-	mapper := layer.NewMapper(f.logger, nil, f.datasetDefinition.OutgoingMappingConfig)
-	iterator := NewFileCollectionEntityIterator(f.datasetDefinition.SourceConfig, dataFileInfos, mapper, "")
-	return iterator, nil
-
+	return nil, layer.Err(fmt.Errorf("operation not supported"), layer.LayerNotSupported)
 }
 
 func NewFileCollectionEntityIterator(sourceConfig map[string]any, files []FileInfo, mapper *layer.Mapper, token string) *FileCollectionEntityIterator {
@@ -467,7 +401,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 
 			// get modified time for the file
 			info, err := fileInfo.Entry.Info()
-			f.token = info.ModTime().Format(timeFormat)
+			f.token = strconv.FormatInt(info.ModTime().UnixMicro(), 10)
 
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
@@ -498,7 +432,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 			file := filepath.Join(fileInfo.Path, fileInfo.Entry.Name())
 
 			info, err := fileInfo.Entry.Info()
-			f.token = info.ModTime().Format(timeFormat)
+			f.token = strconv.FormatInt(info.ModTime().UnixMicro(), 10)
 
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
