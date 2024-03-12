@@ -168,22 +168,23 @@ func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchIn
 	var file *os.File
 	var err error
 	filePath := filepath.Join(f.config.WritePath, f.config.WriteFullSyncFileName)
+	tmpFilePath := filePath + ".tmp"
 	if batchInfo.IsStartBatch {
-		file, err = os.Create(filePath)
+		file, err = os.Create(tmpFilePath)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not create file %s", filePath), layer.LayerErrorInternal)
+			return nil, layer.Err(fmt.Errorf("could not create file %s", tmpFilePath), layer.LayerErrorInternal)
 		}
 	} else {
-		file, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
+		file, err = os.OpenFile(tmpFilePath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not open file %s", filePath), layer.LayerErrorInternal)
+			return nil, layer.Err(fmt.Errorf("could not open file %s", tmpFilePath), layer.LayerErrorInternal)
 		}
 	}
 
 	enc, err := encoder.NewItemWriter(f.datasetDefinition.SourceConfig, file, &batchInfo)
 	factory, err := encoder.NewItemFactory(f.datasetDefinition.SourceConfig)
 	mapper := layer.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
-	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory}
+	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory, fullSyncFilePath: filePath, closeFullSync: batchInfo.IsLastBatch}
 
 	return datasetWriter, nil
 }
@@ -227,10 +228,12 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 }
 
 type FileSystemDatasetWriter struct {
-	logger  layer.Logger
-	enc     encoder.ItemWriter
-	factory encoder.ItemFactory
-	mapper  *layer.Mapper
+	logger           layer.Logger
+	enc              encoder.ItemWriter
+	factory          encoder.ItemFactory
+	mapper           *layer.Mapper
+	fullSyncFilePath string
+	closeFullSync    bool
 }
 
 func (f FileSystemDatasetWriter) Write(entity *egdm.Entity) layer.LayerError {
@@ -253,6 +256,14 @@ func (f FileSystemDatasetWriter) Close() layer.LayerError {
 	if err != nil {
 		return layer.Err(fmt.Errorf("could not close file because %s", err.Error()), layer.LayerErrorInternal)
 	}
+
+	if f.closeFullSync {
+		err = os.Rename(f.fullSyncFilePath+".tmp", f.fullSyncFilePath)
+		if err != nil {
+			return layer.Err(fmt.Errorf("could not rename file because %s", err.Error()), layer.LayerErrorInternal)
+		}
+	}
+
 	return nil
 }
 
