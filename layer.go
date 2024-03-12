@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/hashicorp/go-uuid"
+	"github.com/google/uuid"
 	layer "github.com/mimiro-io/common-datalayer"
 	"github.com/mimiro-io/common-datalayer/encoder"
 	egdm "github.com/mimiro-io/entity-graph-data-model"
@@ -210,7 +210,7 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 			}
 		}
 	} else {
-		id, _ := uuid.GenerateUUID()
+		id := uuid.New().String()
 		partfileName := fmt.Sprintf("part-%s-%s", id, f.config.WriteIncrementalFileName)
 		filePath := filepath.Join(f.config.WritePath, partfileName)
 		file, err = os.Create(filePath)
