@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"time"
+	"strconv"
 )
 
 type FileSystemDataLayer struct {
@@ -168,7 +168,7 @@ func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchIn
 	var file *os.File
 	var err error
 	filePath := filepath.Join(f.config.WritePath, f.config.WriteFullSyncFileName)
-	tmpFilePath := filePath + ".tmp"
+	tmpFilePath := filePath + "." + batchInfo.SyncId + ".tmp"
 	if batchInfo.IsStartBatch {
 		file, err = os.Create(tmpFilePath)
 		if err != nil {
@@ -184,7 +184,7 @@ func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchIn
 	enc, err := encoder.NewItemWriter(f.datasetDefinition.SourceConfig, file, &batchInfo)
 	factory, err := encoder.NewItemFactory(f.datasetDefinition.SourceConfig)
 	mapper := layer.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
-	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory, fullSyncFilePath: filePath, closeFullSync: batchInfo.IsLastBatch}
+	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory, tmpFullSyncPath: tmpFilePath, fullSyncFilePath: filePath, closeFullSync: batchInfo.IsLastBatch}
 
 	return datasetWriter, nil
 }
@@ -232,6 +232,7 @@ type FileSystemDatasetWriter struct {
 	enc              encoder.ItemWriter
 	factory          encoder.ItemFactory
 	mapper           *layer.Mapper
+	tmpFullSyncPath  string
 	fullSyncFilePath string
 	closeFullSync    bool
 }
@@ -258,7 +259,7 @@ func (f FileSystemDatasetWriter) Close() layer.LayerError {
 	}
 
 	if f.closeFullSync {
-		err = os.Rename(f.fullSyncFilePath+".tmp", f.fullSyncFilePath)
+		err = os.Rename(f.tmpFullSyncPath, f.fullSyncFilePath)
 		if err != nil {
 			return layer.Err(fmt.Errorf("could not rename file because %s", err.Error()), layer.LayerErrorInternal)
 		}
@@ -271,9 +272,6 @@ type FileInfo struct {
 	Entry fs.DirEntry
 	Path  string
 }
-
-// delcare const time format
-const timeFormat = "2006-01-02T15:04:05Z07:00"
 
 func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (layer.EntityIterator, layer.LayerError) {
 	// get root folder
@@ -339,14 +337,17 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 
 		if isMatch {
 			if f.config.SupportSinceByFileTimestamp && since != "" {
-				layout := timeFormat
-				sinceTime, err := time.Parse(layout, since)
 				finfo, err := file.Entry.Info()
 				if err != nil {
 					return nil, layer.Err(fmt.Errorf("could not get file info for %s", fileName), layer.LayerErrorInternal)
 				}
-				fileModTime := finfo.ModTime().Truncate(time.Second)
-				if sinceTime.Before(fileModTime) {
+				fileModTime := finfo.ModTime().UnixMicro()
+				sinceTimeAsInt, err := strconv.ParseInt(since, 10, 64)
+				if err != nil {
+					return nil, layer.Err(fmt.Errorf("could not parse since time %s", since), layer.LayerErrorInternal)
+				}
+
+				if sinceTimeAsInt < fileModTime {
 					dataFileInfos = append(dataFileInfos, file)
 				}
 			} else {
@@ -478,7 +479,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 
 			// get modified time for the file
 			info, err := fileInfo.Entry.Info()
-			f.token = info.ModTime().Format(timeFormat)
+			f.token = strconv.FormatInt(info.ModTime().UnixMicro(), 10)
 
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
@@ -509,7 +510,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 			file := filepath.Join(fileInfo.Path, fileInfo.Entry.Name())
 
 			info, err := fileInfo.Entry.Info()
-			f.token = info.ModTime().Format(timeFormat)
+			f.token = strconv.FormatInt(info.ModTime().UnixMicro(), 10)
 
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
