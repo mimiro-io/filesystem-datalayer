@@ -13,7 +13,7 @@ FROM builder as build
 
 # Copy the source from the current directory to the Working Directory inside the container
 COPY cmd ./cmd
-COPY testconfig ./config
+COPY testconfig ./testconfig
 COPY *.go ./
 
 # Build the Go app
