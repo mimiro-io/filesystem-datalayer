@@ -8,6 +8,7 @@ import (
 	"github.com/mimiro-io/entity-graph-data-model"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestStartStopFileSystemDataLayer(t *testing.T) {
@@ -356,6 +357,8 @@ func TestGetChangesWithSinceFilter(t *testing.T) {
 	if count != 0 {
 		t.Errorf("Expected 0 but got %v", count)
 	}
+
+	time.Sleep(10 * time.Millisecond)
 
 	// write another file
 	err = writeSampleCsv(folderName + "/data2.csv")
