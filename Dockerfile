@@ -17,6 +17,7 @@ FROM build_env as builder
 # Copy the source from the current directory to the Working Directory inside the container
 COPY layer.go ./
 COPY cmd ./cmd
+COPY testconfig ./testconfig
 
 # Build the app binaries
 RUN go vet ./...
