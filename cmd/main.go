@@ -1,7 +1,7 @@
 package main
 
 import (
-	common "github.com/mimiro-io/common-datalayer"
+	cdl "github.com/mimiro-io/common-datalayer"
 	layer "github.com/mimiro-io/filesystem-datalayer"
 	"os"
 )
@@ -14,5 +14,5 @@ func main() {
 	if len(args) >= 1 {
 		configFolderLocation = args[0]
 	}
-	common.NewServiceRunner(layer.NewFileSystemDataLayer).WithConfigLocation(configFolderLocation).StartAndWait()
+	cdl.NewServiceRunner(layer.NewFileSystemDataLayer).WithConfigLocation(configFolderLocation).StartAndWait()
 }
