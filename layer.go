@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
-	layer "github.com/mimiro-io/common-datalayer"
+	cdl "github.com/mimiro-io/common-datalayer"
 	"github.com/mimiro-io/common-datalayer/encoder"
 	egdm "github.com/mimiro-io/entity-graph-data-model"
 	"io/fs"
@@ -16,13 +16,13 @@ import (
 )
 
 type FileSystemDataLayer struct {
-	config   *layer.Config
-	logger   layer.Logger
-	metrics  layer.Metrics
+	config   *cdl.Config
+	logger   cdl.Logger
+	metrics  cdl.Metrics
 	datasets map[string]*FileSystemDataset
 }
 
-func NewFileSystemDataLayer(conf *layer.Config, logger layer.Logger, metrics layer.Metrics) (layer.DataLayerService, error) {
+func NewFileSystemDataLayer(conf *cdl.Config, logger cdl.Logger, metrics cdl.Metrics) (cdl.DataLayerService, error) {
 	datalayer := &FileSystemDataLayer{config: conf, logger: logger, metrics: metrics}
 
 	err := datalayer.UpdateConfiguration(conf)
@@ -38,7 +38,7 @@ func (dl *FileSystemDataLayer) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (dl *FileSystemDataLayer) UpdateConfiguration(config *layer.Config) layer.LayerError {
+func (dl *FileSystemDataLayer) UpdateConfiguration(config *cdl.Config) cdl.LayerError {
 	dl.config = config
 	dl.datasets = make(map[string]*FileSystemDataset)
 
@@ -47,28 +47,28 @@ func (dl *FileSystemDataLayer) UpdateConfiguration(config *layer.Config) layer.L
 		dl.datasets[dataset.DatasetName], err =
 			NewFileSystemDataset(dataset.DatasetName, config.NativeSystemConfig["path"].(string), dataset, dl.logger)
 		if err != nil {
-			return layer.Err(fmt.Errorf("could not create dataset %s because %s", dataset.DatasetName, err.Error()), layer.LayerErrorInternal)
+			return cdl.Err(fmt.Errorf("could not create dataset %s because %s", dataset.DatasetName, err.Error()), cdl.LayerErrorInternal)
 		}
 	}
 
 	return nil
 }
 
-func (dl *FileSystemDataLayer) Dataset(dataset string) (layer.Dataset, layer.LayerError) {
+func (dl *FileSystemDataLayer) Dataset(dataset string) (cdl.Dataset, cdl.LayerError) {
 	ds, ok := dl.datasets[dataset]
 	if !ok {
-		return nil, layer.Err(fmt.Errorf("dataset %s not found", dataset), layer.LayerErrorBadParameter)
+		return nil, cdl.Err(fmt.Errorf("dataset %s not found", dataset), cdl.LayerErrorBadParameter)
 	}
 
 	return ds, nil
 }
 
-func (dl *FileSystemDataLayer) DatasetDescriptions() []*layer.DatasetDescription {
-	var datasetDescriptions []*layer.DatasetDescription
+func (dl *FileSystemDataLayer) DatasetDescriptions() []*cdl.DatasetDescription {
+	var datasetDescriptions []*cdl.DatasetDescription
 
 	// iterate over the datasest testconfig and create one for each
 	for key := range dl.datasets {
-		datasetDescriptions = append(datasetDescriptions, &layer.DatasetDescription{Name: key})
+		datasetDescriptions = append(datasetDescriptions, &cdl.DatasetDescription{Name: key})
 	}
 
 	return datasetDescriptions
@@ -130,7 +130,7 @@ type FileSystemDatasetConfig struct {
 	WriteIncrementalAppend      bool   `json:"write_incremental_append"`
 }
 
-func NewFileSystemDataset(name string, path string, datasetDefinition *layer.DatasetDefinition, logger layer.Logger) (*FileSystemDataset, error) {
+func NewFileSystemDataset(name string, path string, datasetDefinition *cdl.DatasetDefinition, logger cdl.Logger) (*FileSystemDataset, error) {
 	sourceConfig := datasetDefinition.SourceConfig
 
 	encoding, ok := sourceConfig["encoding"].(string)
@@ -150,9 +150,9 @@ func NewFileSystemDataset(name string, path string, datasetDefinition *layer.Dat
 }
 
 type FileSystemDataset struct {
-	logger            layer.Logger
+	logger            cdl.Logger
 	name              string                   // dataset name
-	datasetDefinition *layer.DatasetDefinition // the dataset definition with mappings etc
+	datasetDefinition *cdl.DatasetDefinition   // the dataset definition with mappings etc
 	config            *FileSystemDatasetConfig // the dataset config
 }
 
@@ -164,7 +164,7 @@ func (f FileSystemDataset) Name() string {
 	return f.name
 }
 
-func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchInfo) (layer.DatasetWriter, layer.LayerError) {
+func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo cdl.BatchInfo) (cdl.DatasetWriter, cdl.LayerError) {
 	var file *os.File
 	var err error
 	filePath := filepath.Join(f.config.WritePath, f.config.WriteFullSyncFileName)
@@ -172,24 +172,24 @@ func (f FileSystemDataset) FullSync(ctx context.Context, batchInfo layer.BatchIn
 	if batchInfo.IsStartBatch {
 		file, err = os.Create(tmpFilePath)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not create file %s", tmpFilePath), layer.LayerErrorInternal)
+			return nil, cdl.Err(fmt.Errorf("could not create file %s", tmpFilePath), cdl.LayerErrorInternal)
 		}
 	} else {
 		file, err = os.OpenFile(tmpFilePath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not open file %s", tmpFilePath), layer.LayerErrorInternal)
+			return nil, cdl.Err(fmt.Errorf("could not open file %s", tmpFilePath), cdl.LayerErrorInternal)
 		}
 	}
 
 	enc, err := encoder.NewItemWriter(f.datasetDefinition.SourceConfig, f.logger, file, &batchInfo)
 	factory, err := encoder.NewItemFactory(f.datasetDefinition.SourceConfig)
-	mapper := layer.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
+	mapper := cdl.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
 	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory, tmpFullSyncPath: tmpFilePath, fullSyncFilePath: filePath, closeFullSync: batchInfo.IsLastBatch}
 
 	return datasetWriter, nil
 }
 
-func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter, layer.LayerError) {
+func (f FileSystemDataset) Incremental(ctx context.Context) (cdl.DatasetWriter, cdl.LayerError) {
 	var file *os.File
 	var err error
 
@@ -201,12 +201,12 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 		if os.IsNotExist(err) {
 			file, err = os.Create(filePath)
 			if err != nil {
-				return nil, layer.Err(fmt.Errorf("could not create file %s", filePath), layer.LayerErrorInternal)
+				return nil, cdl.Err(fmt.Errorf("could not create file %s", filePath), cdl.LayerErrorInternal)
 			}
 		} else {
 			file, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
 			if err != nil {
-				return nil, layer.Err(fmt.Errorf("could not open file for appending %s", filePath), layer.LayerErrorInternal)
+				return nil, cdl.Err(fmt.Errorf("could not open file for appending %s", filePath), cdl.LayerErrorInternal)
 			}
 		}
 	} else {
@@ -215,53 +215,53 @@ func (f FileSystemDataset) Incremental(ctx context.Context) (layer.DatasetWriter
 		filePath := filepath.Join(f.config.WritePath, partfileName)
 		file, err = os.Create(filePath)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not create file %s", filePath), layer.LayerErrorInternal)
+			return nil, cdl.Err(fmt.Errorf("could not create file %s", filePath), cdl.LayerErrorInternal)
 		}
 	}
 
 	enc, err := encoder.NewItemWriter(f.datasetDefinition.SourceConfig, f.logger, file, nil)
 	factory, err := encoder.NewItemFactory(f.datasetDefinition.SourceConfig)
-	mapper := layer.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
+	mapper := cdl.NewMapper(f.logger, f.datasetDefinition.IncomingMappingConfig, f.datasetDefinition.OutgoingMappingConfig)
 	datasetWriter := &FileSystemDatasetWriter{logger: f.logger, enc: enc, mapper: mapper, factory: factory}
 
 	return datasetWriter, nil
 }
 
 type FileSystemDatasetWriter struct {
-	logger           layer.Logger
+	logger           cdl.Logger
 	enc              encoder.ItemWriter
 	factory          encoder.ItemFactory
-	mapper           *layer.Mapper
+	mapper           *cdl.Mapper
 	tmpFullSyncPath  string
 	fullSyncFilePath string
 	closeFullSync    bool
 }
 
-func (f FileSystemDatasetWriter) Write(entity *egdm.Entity) layer.LayerError {
+func (f FileSystemDatasetWriter) Write(entity *egdm.Entity) cdl.LayerError {
 	item := f.factory.NewItem()
 	err := f.mapper.MapEntityToItem(entity, item)
 	if err != nil {
-		return layer.Err(fmt.Errorf("could not map entity to item because %s", err.Error()), layer.LayerErrorInternal)
+		return cdl.Err(fmt.Errorf("could not map entity to item because %s", err.Error()), cdl.LayerErrorInternal)
 	}
 
 	err = f.enc.Write(item)
 	if err != nil {
-		return layer.Err(fmt.Errorf("could not write item to file because %s", err.Error()), layer.LayerErrorInternal)
+		return cdl.Err(fmt.Errorf("could not write item to file because %s", err.Error()), cdl.LayerErrorInternal)
 	}
 
 	return nil
 }
 
-func (f FileSystemDatasetWriter) Close() layer.LayerError {
+func (f FileSystemDatasetWriter) Close() cdl.LayerError {
 	err := f.enc.Close()
 	if err != nil {
-		return layer.Err(fmt.Errorf("could not close file because %s", err.Error()), layer.LayerErrorInternal)
+		return cdl.Err(fmt.Errorf("could not close file because %s", err.Error()), cdl.LayerErrorInternal)
 	}
 
 	if f.closeFullSync {
 		err = os.Rename(f.tmpFullSyncPath, f.fullSyncFilePath)
 		if err != nil {
-			return layer.Err(fmt.Errorf("could not rename file because %s", err.Error()), layer.LayerErrorInternal)
+			return cdl.Err(fmt.Errorf("could not rename file because %s", err.Error()), cdl.LayerErrorInternal)
 		}
 	}
 
@@ -273,10 +273,10 @@ type FileInfo struct {
 	Path  string
 }
 
-func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (layer.EntityIterator, layer.LayerError) {
+func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (cdl.EntityIterator, cdl.LayerError) {
 	// get root folder
 	if _, err := os.Stat(f.config.ReadPath); os.IsNotExist(err) {
-		return nil, layer.Err(fmt.Errorf("path %s does not exist", f.config.ReadPath), layer.LayerErrorBadParameter)
+		return nil, cdl.Err(fmt.Errorf("path %s does not exist", f.config.ReadPath), cdl.LayerErrorBadParameter)
 	}
 
 	// check if we are recursive and get all folders
@@ -306,7 +306,7 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 		})
 
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not read directory %s", f.config.ReadPath), layer.LayerErrorBadParameter)
+			return nil, cdl.Err(fmt.Errorf("could not read directory %s", f.config.ReadPath), cdl.LayerErrorBadParameter)
 		}
 	} else {
 		folders = append(folders, f.config.ReadPath)
@@ -319,7 +319,7 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 	for _, folder := range folders {
 		files, err := os.ReadDir(folder)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not read directory %s", folder), layer.LayerErrorBadParameter)
+			return nil, cdl.Err(fmt.Errorf("could not read directory %s", folder), cdl.LayerErrorBadParameter)
 		}
 
 		for _, file := range files {
@@ -332,19 +332,19 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 		fileName := file.Entry.Name()
 		isMatch, err := filepath.Match(f.config.ReadFilePattern, fileName)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not match file pattern %s", f.config.ReadFilePattern), layer.LayerErrorInternal)
+			return nil, cdl.Err(fmt.Errorf("could not match file pattern %s", f.config.ReadFilePattern), cdl.LayerErrorInternal)
 		}
 
 		if isMatch {
 			if f.config.SupportSinceByFileTimestamp && since != "" {
 				finfo, err := file.Entry.Info()
 				if err != nil {
-					return nil, layer.Err(fmt.Errorf("could not get file info for %s", fileName), layer.LayerErrorInternal)
+					return nil, cdl.Err(fmt.Errorf("could not get file info for %s", fileName), cdl.LayerErrorInternal)
 				}
 				fileModTime := finfo.ModTime().UnixMicro()
 				sinceTimeAsInt, err := strconv.ParseInt(since, 10, 64)
 				if err != nil {
-					return nil, layer.Err(fmt.Errorf("could not parse since time %s", since), layer.LayerErrorInternal)
+					return nil, cdl.Err(fmt.Errorf("could not parse since time %s", since), cdl.LayerErrorInternal)
 				}
 
 				if sinceTimeAsInt < fileModTime {
@@ -365,27 +365,27 @@ func (f FileSystemDataset) Changes(since string, limit int, latestOnly bool) (la
 		})
 	}
 
-	mapper := layer.NewMapper(f.logger, nil, f.datasetDefinition.OutgoingMappingConfig)
+	mapper := cdl.NewMapper(f.logger, nil, f.datasetDefinition.OutgoingMappingConfig)
 	iterator := NewFileCollectionEntityIterator(f.datasetDefinition.SourceConfig, f.logger, dataFileInfos, mapper, "")
 	return iterator, nil
 }
 
-func (f FileSystemDataset) Entities(from string, limit int) (layer.EntityIterator, layer.LayerError) {
-	return nil, layer.Err(fmt.Errorf("operation not supported"), layer.LayerNotSupported)
+func (f FileSystemDataset) Entities(from string, limit int) (cdl.EntityIterator, cdl.LayerError) {
+	return nil, cdl.Err(fmt.Errorf("operation not supported"), cdl.LayerNotSupported)
 }
 
-func NewFileCollectionEntityIterator(sourceConfig map[string]any, logger layer.Logger, files []FileInfo, mapper *layer.Mapper, token string) *FileCollectionEntityIterator {
+func NewFileCollectionEntityIterator(sourceConfig map[string]any, logger cdl.Logger, files []FileInfo, mapper *cdl.Mapper, token string) *FileCollectionEntityIterator {
 	return &FileCollectionEntityIterator{sourceConfig: sourceConfig, mapper: mapper, token: token, files: files, filesIndex: 0, logger: logger}
 }
 
 type FileCollectionEntityIterator struct {
-	mapper            *layer.Mapper
+	mapper            *cdl.Mapper
 	token             string
 	files             []FileInfo
 	filesIndex        int
 	currentItemReader encoder.ItemIterator
 	sourceConfig      map[string]any
-	logger            layer.Logger
+	logger            cdl.Logger
 }
 
 func (f *FileCollectionEntityIterator) Context() *egdm.Context {
@@ -393,7 +393,7 @@ func (f *FileCollectionEntityIterator) Context() *egdm.Context {
 	return ctx.AsContext()
 }
 
-func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
+func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, cdl.LayerError) {
 	if f.currentItemReader == nil {
 		if f.filesIndex < len(f.files) {
 			// initialize the current file entity iterator
@@ -406,7 +406,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
-				return nil, layer.Err(fmt.Errorf("could not create item reader for file %s becuase %s", file, err.Error()), layer.LayerErrorInternal)
+				return nil, cdl.Err(fmt.Errorf("could not create item reader for file %s becuase %s", file, err.Error()), cdl.LayerErrorInternal)
 			}
 
 			f.currentItemReader = itemReader
@@ -418,14 +418,14 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 	// read the next entity from the current file
 	item, err := f.currentItemReader.Read()
 	if err != nil {
-		return nil, layer.Err(fmt.Errorf("could not read item from file because %s", err.Error()), layer.LayerErrorInternal)
+		return nil, cdl.Err(fmt.Errorf("could not read item from file because %s", err.Error()), cdl.LayerErrorInternal)
 	}
 
 	if item == nil {
 		// close the current file and move to the next
 		err := f.currentItemReader.Close()
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not close item reader for file because %s", err.Error()), layer.LayerErrorInternal)
+			return nil, cdl.Err(fmt.Errorf("could not close item reader for file because %s", err.Error()), cdl.LayerErrorInternal)
 		}
 		f.filesIndex++
 		if f.filesIndex < len(f.files) {
@@ -437,13 +437,13 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 
 			itemReader, err := f.NewItemReadCloser(file, f.sourceConfig)
 			if err != nil {
-				return nil, layer.Err(fmt.Errorf("could not create item reader for file %s becuase %s", file, err.Error()), layer.LayerErrorInternal)
+				return nil, cdl.Err(fmt.Errorf("could not create item reader for file %s becuase %s", file, err.Error()), cdl.LayerErrorInternal)
 			}
 
 			f.currentItemReader = itemReader
 			item, err = f.currentItemReader.Read()
 			if err != nil {
-				return nil, layer.Err(fmt.Errorf("could not read item from file because %s", err.Error()), layer.LayerErrorInternal)
+				return nil, cdl.Err(fmt.Errorf("could not read item from file because %s", err.Error()), cdl.LayerErrorInternal)
 			}
 		}
 	}
@@ -454,7 +454,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 		entity := &egdm.Entity{Properties: make(map[string]any)}
 		err := f.mapper.MapItemToEntity(item, entity)
 		if err != nil {
-			return nil, layer.Err(fmt.Errorf("could not map item to entity because %s", err.Error()), layer.LayerErrorInternal)
+			return nil, cdl.Err(fmt.Errorf("could not map item to entity because %s", err.Error()), cdl.LayerErrorInternal)
 		}
 		return entity, nil
 	}
@@ -463,28 +463,28 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, layer.LayerError) {
 func (f *FileCollectionEntityIterator) NewItemReadCloser(filePath string, sourceConfig map[string]any) (encoder.ItemIterator, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, layer.Err(fmt.Errorf("could not open file %s", filePath), layer.LayerErrorInternal)
+		return nil, cdl.Err(fmt.Errorf("could not open file %s", filePath), cdl.LayerErrorInternal)
 	}
 
 	// get encoder for the file
 	itemReader, err := encoder.NewItemIterator(sourceConfig, f.logger, file)
 	if err != nil {
-		return nil, layer.Err(fmt.Errorf("could not create encoder specified in dataset source testconfig"), layer.LayerErrorBadParameter)
+		return nil, cdl.Err(fmt.Errorf("could not create encoder specified in dataset source testconfig"), cdl.LayerErrorBadParameter)
 	}
 
 	return itemReader, nil
 }
 
-func (f *FileCollectionEntityIterator) Token() (*egdm.Continuation, layer.LayerError) {
+func (f *FileCollectionEntityIterator) Token() (*egdm.Continuation, cdl.LayerError) {
 	cont := egdm.NewContinuation()
 	cont.Token = f.token
 	return cont, nil
 }
 
-func (f *FileCollectionEntityIterator) Close() layer.LayerError {
+func (f *FileCollectionEntityIterator) Close() cdl.LayerError {
 	err := f.currentItemReader.Close()
 	if err != nil {
-		return layer.Err(fmt.Errorf("could not close item reader because %s", err.Error()), layer.LayerErrorInternal)
+		return cdl.Err(fmt.Errorf("could not close item reader because %s", err.Error()), cdl.LayerErrorInternal)
 	}
 	return nil
 }
