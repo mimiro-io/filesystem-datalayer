@@ -4,8 +4,8 @@ go 1.22.5
 
 require (
 	github.com/google/uuid v1.2.0
-	github.com/mimiro-io/common-datalayer v0.2.6
-	github.com/mimiro-io/entity-graph-data-model v0.7.7
+	github.com/mimiro-io/common-datalayer v0.2.7
+	github.com/mimiro-io/entity-graph-data-model v0.7.8
 )
 
 require (
