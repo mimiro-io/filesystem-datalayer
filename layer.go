@@ -451,7 +451,7 @@ func (f *FileCollectionEntityIterator) Next() (*egdm.Entity, cdl.LayerError) {
 	if item == nil {
 		return nil, nil
 	} else {
-		entity := &egdm.Entity{Properties: make(map[string]any)}
+		entity := egdm.NewEntity()
 		err := f.mapper.MapItemToEntity(item, entity)
 		if err != nil {
 			return nil, cdl.Err(fmt.Errorf("could not map item to entity because %s", err.Error()), cdl.LayerErrorInternal)

@@ -28,8 +28,5 @@ FROM scratch
 COPY --from=builder /filesystem-datalayer .
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Expose port 8090 to the outside world
-EXPOSE 8090
-
 # Command to run the executable
 CMD ["./filesystem-datalayer"]
