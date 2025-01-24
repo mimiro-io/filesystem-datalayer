@@ -20,8 +20,7 @@ COPY cmd ./cmd
 COPY testconfig ./testconfig
 
 # Build the app binaries
-RUN go vet ./...
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o /filesystem-datalayer ./cmd/main.go
+RUN go build -a -o /filesystem-datalayer ./cmd/main.go
 
 FROM scratch
 # Copy the Pre-built binary file from the previous stage
