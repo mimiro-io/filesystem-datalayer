@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS build
+FROM golang:1.27.4-alpine AS build
 
 WORKDIR /app
 
@@ -20,6 +20,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 # Copy the Pre-built binary file from the previous stage
 COPY --from=build /filesystem-datalayer .
+
+USER nonroot
 
 # Command to run the executable
 CMD ["./filesystem-datalayer"]
